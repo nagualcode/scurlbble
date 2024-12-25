@@ -1,6 +1,8 @@
 #!/bin/bash
 # https://github.com/nagualcode/scurlbble
 
+cd "$(dirname "$0")"
+
 CONFIG_FILE="./config.txt"
 SESSION_FILE="./lastfm_session"
 
