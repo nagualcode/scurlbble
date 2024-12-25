@@ -1,0 +1,13 @@
+[Unit]
+Description=MPD LastFM scrobble
+After=sound.target Ftp.service mpd.service
+Requires=Ftp.service
+
+[Service]
+Type=simple
+ExecStart=/mnt/streaming/scurlbble/scurlbble
+Restart=on-failure
+WorkingDirectory=/mnt/streaming/scurlbble
+
+[Install]
+WantedBy=multi-user.target
