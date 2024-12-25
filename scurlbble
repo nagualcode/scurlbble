@@ -1,0 +1,177 @@
+#!/bin/bash
+# https://github.com/nagualcode/scurlbble
+
+CONFIG_FILE="./config.txt"
+SESSION_FILE="./lastfm_session"
+
+load_config() {
+  if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+  fi
+}
+
+save_config() {
+  cat << EOF > "$CONFIG_FILE"
+API_KEY="$API_KEY"
+API_SECRET="$API_SECRET"
+USERNAME="$USERNAME"
+PASSWORD="$PASSWORD"
+EOF
+}
+
+prompt_missing_variables() {
+  if [ -z "$API_KEY" ]; then
+    read -p "API_KEY: " API_KEY
+  fi
+
+  if [ -z "$API_SECRET" ]; then
+    read -p "API_SECRET: " API_SECRET
+  fi
+
+  if [ -z "$USERNAME" ]; then
+    read -p "USERNAME: " USERNAME
+  fi
+
+  if [ -z "$PASSWORD" ]; then
+    read -sp "PASSWORD: " PASSWORD
+    echo
+  fi
+
+  save_config
+}
+
+load_config
+
+prompt_missing_variables
+
+
+authenticate() {
+  if [ -f "$SESSION_FILE" ]; then
+    SESSION_KEY=$(cat "$SESSION_FILE")
+    return
+  fi
+
+  local api_sig
+  api_sig=$(echo -n "api_key${API_KEY}methodauth.getMobileSessionpassword${PASSWORD}username${USERNAME}${API_SECRET}" | md5sum | awk '{print $1}')
+  
+  local response
+  response=$(curl -X POST -s -G \
+    --data-urlencode "method=auth.getMobileSession" \
+    --data-urlencode "username=$USERNAME" \
+    --data-urlencode "password=$PASSWORD" \
+    --data-urlencode "api_key=$API_KEY" \
+    --data-urlencode "api_sig=$api_sig" \
+    "https://ws.audioscrobbler.com/2.0/")
+
+
+  SESSION_KEY=$(echo "$response" | grep -oP '(?<=<key>).*?(?=</key>)')
+
+  if [ -n "$SESSION_KEY" ]; then
+  echo "new session file!"
+    echo "$SESSION_KEY" > "$SESSION_FILE"
+  else
+    echo "Authentication failed. Check your credentials." >&2
+    echo "$response"
+    exit 1
+  fi
+}
+
+
+
+scrobble_track() {
+  local artist="$1"
+  local track="$2"
+  local timestamp="$3"
+
+  local api_sig
+  api_sig=$(echo -n "api_key${API_KEY}artist${artist}methodtrack.scrobblesk${SESSION_KEY}timestamp${timestamp}track${track}${API_SECRET}" | md5sum | awk '{print $1}')
+
+
+  local response
+  response=$(curl -X POST -s \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data-urlencode "method=track.scrobble" \
+    --data-urlencode "artist=$artist" \
+    --data-urlencode "track=$track" \
+    --data-urlencode "timestamp=$timestamp" \
+    --data-urlencode "sk=$SESSION_KEY" \
+    --data-urlencode "api_key=$API_KEY" \
+    --data-urlencode "api_sig=$api_sig" \
+    "https://ws.audioscrobbler.com/2.0/")
+
+
+  if echo "$response" | grep -q "<lfm status=\"ok\">"; then
+    echo "Scrobble: $artist - $track"
+  else
+    echo "Erro no scrobble: $artist - $track" >&2
+    echo "$response" >&2
+    if [[ -f "$SESSION_FILE" ]]; then
+    	rm "$SESSION_FILE"
+    fi
+  fi
+}
+
+
+now_playing_track() {
+  local artist="$1"
+  local track="$2"
+
+
+  local api_sig
+  api_sig=$(echo -n "api_key${API_KEY}artist${artist}methodtrack.updateNowPlayingsk${SESSION_KEY}track${track}${API_SECRET}" | md5sum | awk '{print $1}')
+  
+  local response
+  response=$(curl -X POST -s \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data-urlencode "method=track.updateNowPlaying" \
+    --data-urlencode "artist=$artist" \
+    --data-urlencode "track=$track" \
+    --data-urlencode "sk=$SESSION_KEY" \
+    --data-urlencode "api_key=$API_KEY" \
+    --data-urlencode "api_sig=$api_sig" \
+    "https://ws.audioscrobbler.com/2.0/")
+
+  
+
+  if echo "$response" | grep -q "<lfm status=\"ok\">"; then
+    echo "Now Playing: $artist - $track"
+  else
+    echo "Erro ao atualizar Now Playing: $artist - $track" >&2
+    echo "$response"
+        if [[ -f "$SESSION_FILE" ]]; then
+    	rm "$SESSION_FILE"
+   		fi
+  fi
+}
+
+
+doLoop() {
+while true; do
+  authenticate
+  current_track=$(mpc current -f "%artist%//%title%")
+  if [ -n "$current_track" ]; then
+    IFS='//' read -r artist track <<< "$current_track"
+    timestamp=$(date +%s)
+    now_playing_track "$artist" "$track"
+  fi
+  
+mpc idle >/dev/null
+
+scrobble_track "$artist" "$track" "$timestamp"
+done
+}
+
+
+
+if [[ -n "$2" ]]; then
+	authenticate
+	timestamp=$(date +%s)
+	scrobble_track "$1" "$2" "$timestamp"
+	now_playing_track "$1" "$2"
+else
+doLoop
+fi
+
+
+
+
