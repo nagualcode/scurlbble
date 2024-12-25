@@ -148,9 +148,9 @@ now_playing_track() {
 doLoop() {
 while true; do
   authenticate
-  current_track=$(mpc current -f "%artist%//%title%")
+  current_track=$(mpc current -f "%artist%/%title%")
   if [ -n "$current_track" ]; then
-    IFS='//' read -r artist track <<< "$current_track"
+    IFS='/' read -r artist track <<< "$current_track"
     timestamp=$(date +%s)
     now_playing_track "$artist" "$track"
   fi
